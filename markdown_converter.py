@@ -120,20 +120,69 @@ class CustomMarkdownConverter(BaseConverter):
         return '\n' + '\n'.join(lines) + '\n'
     
     def convert_li(self, el, text, parent_tags):
-        """Convert list item elements."""
-        # Handle nested lists properly
+        """Convert list item elements with proper indentation for nested lists."""
+        # Calculate nesting level by counting parent list elements
+        nesting_level = 0
+        parent_el = el.parent
+        while parent_el:
+            if parent_el.name in ['ul', 'ol']:
+                nesting_level += 1
+            parent_el = parent_el.parent
+        
+        # Calculate indentation (4 spaces per level, but first level has no indent)
+        indent = '    ' * max(0, nesting_level - 1)
+        
+        # Get immediate parent to determine list type
         parent = el.parent
         if parent and parent.name == 'ol':
             # Ordered list - find the item number
             index = 1
-            for i, sibling in enumerate(parent.find_all('li')):
+            # Only count direct children li elements
+            for i, sibling in enumerate(parent.find_all('li', recursive=False)):
                 if sibling == el:
                     index = i + 1
                     break
-            return f"{index}. {text.strip()}\n"
+            
+            # Check if we need to use the value attribute
+            if el.get('value'):
+                index = el.get('value')
+            
+            return f"{indent}{index}. {text.strip()}\n"
         else:
             # Unordered list
-            return f"- {text.strip()}\n"
+            return f"{indent}- {text.strip()}\n"
+    
+    def convert_ul(self, el, text, parent_tags):
+        """Convert unordered list elements."""
+        # Check if this is a nested list
+        parent_li = None
+        for parent in parent_tags:
+            if parent == 'li':
+                parent_li = True
+                break
+        
+        if parent_li:
+            # This is a nested list, ensure proper spacing
+            return f"\n{text}"
+        else:
+            # Top-level list
+            return f"\n{text}\n"
+    
+    def convert_ol(self, el, text, parent_tags):
+        """Convert ordered list elements."""
+        # Check if this is a nested list
+        parent_li = None
+        for parent in parent_tags:
+            if parent == 'li':
+                parent_li = True
+                break
+        
+        if parent_li:
+            # This is a nested list, ensure proper spacing
+            return f"\n{text}"
+        else:
+            # Top-level list
+            return f"\n{text}\n"
     
     def convert_br(self, el, text, parent_tags):
         """Convert br elements."""
