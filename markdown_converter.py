@@ -18,27 +18,19 @@ class CustomMarkdownConverter(BaseConverter):
     
     def convert_code(self, el, text, parent_tags):
         """Convert code elements with triple backticks."""
-        # Check if this should be inline based on parent tags
-        convert_as_inline = 'p' in parent_tags or 'li' in parent_tags
-        
-        if el.get('data-inline') == 'true' or convert_as_inline:
-            # Inline code with single backticks
-            return f"`{text}`" if text else ""
-        else:
-            # Code block with triple backticks
-            # Check if there's a language specified
+        # Check if it's inside a <pre> tag (already a code block)
+        if el.parent and el.parent.name == 'pre':
+            # This is a pre > code block, handle it as a code block
             lang = el.get('class', '')
             if lang and lang.startswith('language-'):
                 lang = lang.replace('language-', '')
             else:
                 lang = ''
-            
-            # Use triple backticks for code blocks
-            if '\n' in text or len(text) > 60:
-                return f"\n```{lang}\n{text}\n```\n"
-            else:
-                # Short code without newlines can be inline
-                return f"`{text}`"
+            return f"```{lang}\n{text}\n```"
+        else:
+            # All other code tags should be converted to code blocks with triple backticks
+            # Even if they're inline in the HTML, convert to code blocks as requested
+            return f"```{text}```" if text else ""
     
     def convert_pre(self, el, text, parent_tags):
         """Convert pre elements."""
