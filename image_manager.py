@@ -15,7 +15,9 @@ class ImageManager:
         self.output_dir = Path(output_dir)
         # Static folder should be at the same level as output_dir
         # If output_dir is /docs/markdown_docs, then static should be /docs/static
-        self.static_dir = self.output_dir.parent / 'static' / 'img' / project_name
+        # Use the output directory name for the static path
+        output_dirname = self.output_dir.name
+        self.static_dir = self.output_dir.parent / 'static' / 'img' / output_dirname
         
         # Track image references: original_path -> [(doc_path, line_num), ...]
         self.image_references = defaultdict(list)
@@ -111,11 +113,25 @@ class ImageManager:
                 normalized_doc_path = normalize_path(doc_relative)
                 doc_subdir = normalized_doc_path.parent
                 
-                # Remove the first component if it matches the project name
-                # to avoid duplication like static/img/1secure/1secure/...
-                subdir_parts = doc_subdir.parts
-                if subdir_parts and subdir_parts[0].lower() == self.project_name.lower():
-                    doc_subdir = Path(*subdir_parts[1:]) if len(subdir_parts) > 1 else Path('.')
+                # When project_name is "product_docs", we need special handling
+                # The structure is product_docs/Product/Product/... 
+                # We want to create static/img/product_docs/Product/... (without the duplicate)
+                subdir_parts = list(doc_subdir.parts)
+                
+                if self.project_name.lower() == "product_docs" and subdir_parts:
+                    # For product_docs, check if first two parts after product_docs are duplicates
+                    # e.g., 1secure/1secure/admin -> 1secure/admin
+                    if len(subdir_parts) >= 2 and subdir_parts[0].lower() == subdir_parts[1].lower():
+                        subdir_parts = subdir_parts[1:]
+                elif subdir_parts:
+                    # For other cases, check if first component matches project name
+                    if subdir_parts[0].lower() == self.project_name.lower():
+                        subdir_parts = subdir_parts[1:] if len(subdir_parts) > 1 else []
+                    # Check for duplicate directories (e.g., 1secure/1secure)
+                    elif len(subdir_parts) >= 2 and subdir_parts[0].lower() == subdir_parts[1].lower():
+                        subdir_parts = subdir_parts[1:]
+                
+                doc_subdir = Path(*subdir_parts) if subdir_parts else Path('.')
                 
                 # Create the subdirectory in static folder
                 if str(doc_subdir) != '.':
@@ -187,27 +203,29 @@ class ImageManager:
         """Get the new path for an image after deduplication."""
         if original_path in self.image_map:
             _, new_relative_path = self.image_map[original_path]
-            return f"/static/img/{self.project_name}/{new_relative_path}"
+            output_dirname = self.output_dir.name
+            return f"/static/img/{output_dirname}/{new_relative_path}"
         return original_path
     
     def get_new_image_path_by_filename(self, filename):
         """Get the new path for an image by its filename."""
         # Normalize the filename
         normalized_filename = normalize_path(filename).name
+        output_dirname = self.output_dir.name
         
         # Look through all processed images to find a match
         for original_path, (file_hash, new_relative_path) in self.image_map.items():
             # Check if the normalized filename matches
             original_normalized = normalize_path(Path(original_path).name)
             if str(original_normalized) == str(normalized_filename):
-                return f"/static/img/{self.project_name}/{new_relative_path}"
+                return f"/static/img/{output_dirname}/{new_relative_path}"
         
         # If not found in the map, search recursively in static dir
         if self.static_dir.exists():
             # Search recursively for the file
             for img_file in self.static_dir.rglob(str(normalized_filename)):
                 relative_path = img_file.relative_to(self.static_dir)
-                return f"/static/img/{self.project_name}/{relative_path}"
+                return f"/static/img/{output_dirname}/{relative_path}"
             
             # Then try with number suffix (for conflicts)
             if isinstance(normalized_filename, Path):
@@ -217,7 +235,7 @@ class ImageManager:
             
             for img_file in self.static_dir.rglob(pattern):
                 relative_path = img_file.relative_to(self.static_dir)
-                return f"/static/img/{self.project_name}/{relative_path}"
+                return f"/static/img/{output_dirname}/{relative_path}"
         
         return None
     

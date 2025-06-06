@@ -65,7 +65,8 @@ class HtmlPreprocessor:
             # The actual filename will be determined after deduplication
             filename = Path(src).name
             normalized_filename = filename.lower().replace(' ', '_')
-            placeholder_path = f"/static/img/{self.path_resolver.project_name}/{normalized_filename}"
+            output_dirname = self.path_resolver.output_dir.name
+            placeholder_path = f"/static/img/{output_dirname}/{normalized_filename}"
             
             # Store the original src as a data attribute for later processing
             img['data-original-src'] = src

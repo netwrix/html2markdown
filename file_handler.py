@@ -24,6 +24,24 @@ class FileSystemHandler:
             # Normalize the path
             normalized_path = normalize_path(rel_path)
             
+            # Check for duplicate directory names in path
+            # Handle the common pattern where products have Product/Product/... structure
+            path_parts = list(normalized_path.parts)
+            
+            # Look for the pattern where first part matches input dir name
+            if path_parts:
+                input_name = Path(input_dir).name.lower()
+                # If we're processing a single product (e.g., product_docs/1Secure)
+                # and the first part of the path is the same product name, skip it
+                if path_parts[0].lower() == input_name:
+                    # This handles the 1Secure/1Secure case
+                    path_parts = path_parts[1:] if len(path_parts) > 1 else []
+                # Also check for consecutive duplicates
+                elif len(path_parts) >= 2 and path_parts[0].lower() == path_parts[1].lower():
+                    path_parts = path_parts[1:]
+            
+            normalized_path = Path(*path_parts) if path_parts else Path('.')
+            
             # Create corresponding directory in output
             output_path = self.output_dir / normalized_path
             ensure_directory_exists(output_path)
@@ -88,6 +106,24 @@ class FileSystemHandler:
         for root, dirs, files in os.walk(input_path):
             rel_path = Path(root).relative_to(input_path)
             normalized_path = normalize_path(rel_path)
+            
+            # Check for duplicate directory names in path
+            # Handle the common pattern where products have Product/Product/... structure
+            path_parts = list(normalized_path.parts)
+            
+            if path_parts:
+                input_name = Path(input_dir).name.lower()
+                # If we're processing a single product (e.g., product_docs/1Secure)
+                # and the first part of the path is the same product name, skip it
+                if path_parts[0].lower() == input_name:
+                    # This handles the 1Secure/1Secure case
+                    path_parts = path_parts[1:] if len(path_parts) > 1 else []
+                # Also check for consecutive duplicates
+                elif len(path_parts) >= 2 and path_parts[0].lower() == path_parts[1].lower():
+                    path_parts = path_parts[1:]
+            
+            normalized_path = Path(*path_parts) if path_parts else Path('.')
+            
             output_path = self.output_dir / normalized_path
             
             for file in files:
