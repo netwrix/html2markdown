@@ -88,8 +88,18 @@ class PathResolver:
         elif path_str.endswith('.html'):
             path_str = path_str[:-5] + '.md'
         
+        # Check if the path starts with the project name to avoid duplication
+        path_parts = Path(path_str).parts
+        if path_parts and path_parts[0].lower() == self.project_name.lower():
+            # Already includes project name, don't add it again
+            path_str = str(Path(*path_parts))
+        else:
+            # Add project name
+            path_str = f"{self.project_name}/{path_str}"
+        
         # Return as absolute path from output root
-        return f"/output_docs/{self.project_name}/{path_str}"
+        output_dir_name = self.output_dir.name
+        return f"/{output_dir_name}/{path_str}"
     
     def get_output_path(self, input_file):
         """Get the output path for a given input file."""

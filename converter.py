@@ -20,8 +20,8 @@ class HtmlToMarkdownConverter:
         self.input_dir = Path(input_dir).resolve()
         self.output_dir = Path(output_dir).resolve()
         
-        # Extract project name from output directory
-        self.project_name = self.output_dir.name
+        # Extract project name from input directory
+        self.project_name = self.input_dir.name.lower()
         
         # Initialize components
         self.path_resolver = PathResolver(self.input_dir, self.output_dir, self.project_name)

@@ -13,9 +13,9 @@ class ImageManager:
     def __init__(self, project_name, output_dir):
         self.project_name = project_name
         self.output_dir = Path(output_dir)
-        # Static folder should be adjacent to output_dir, not inside it
-        # If output_dir is /path/to/output_docs/1secure, then static should be /path/to/static
-        self.static_dir = self.output_dir.parent.parent / 'static' / 'img' / project_name
+        # Static folder should be at the same level as output_dir
+        # If output_dir is /docs/markdown_docs, then static should be /docs/static
+        self.static_dir = self.output_dir.parent / 'static' / 'img' / project_name
         
         # Track image references: original_path -> [(doc_path, line_num), ...]
         self.image_references = defaultdict(list)
@@ -28,6 +28,9 @@ class ImageManager:
         
         # Track all moved images for cleanup
         self.moved_images = set()
+        
+        # Track which document references which images for directory structure
+        self.doc_to_images = defaultdict(list)
         
     def calculate_hash(self, file_path):
         """Calculate SHA256 hash of a file."""
@@ -46,6 +49,8 @@ class ImageManager:
         self.image_references[original_path].append(source_doc)
         if resolved_path:
             self.image_references[resolved_path].append(source_doc)
+        # Track which images are referenced by which documents
+        self.doc_to_images[source_doc].append(original_path)
     
     def process_images(self, input_dir):
         """Process all referenced images for deduplication and moving."""
@@ -66,6 +71,7 @@ class ImageManager:
             
             # For each source document that references this image
             full_path = None
+            referencing_doc = None
             for source_doc in source_docs:
                 # Resolve relative path from the HTML file's location
                 source_doc_path = Path(source_doc)
@@ -79,6 +85,7 @@ class ImageManager:
                     resolved_path = (source_dir / original_path).resolve()
                     if resolved_path.exists():
                         full_path = resolved_path
+                        referencing_doc = source_doc
                         break
                 except Exception:
                     continue
@@ -92,6 +99,32 @@ class ImageManager:
             if not file_hash:
                 continue
             
+            # Determine the subdirectory structure based on the referencing document
+            if referencing_doc:
+                # Get the relative path of the document from input_dir
+                try:
+                    doc_relative = Path(referencing_doc).relative_to(input_dir)
+                except ValueError:
+                    doc_relative = Path(referencing_doc)
+                
+                # Normalize the document path and get its directory structure
+                normalized_doc_path = normalize_path(doc_relative)
+                doc_subdir = normalized_doc_path.parent
+                
+                # Remove the first component if it matches the project name
+                # to avoid duplication like static/img/1secure/1secure/...
+                subdir_parts = doc_subdir.parts
+                if subdir_parts and subdir_parts[0].lower() == self.project_name.lower():
+                    doc_subdir = Path(*subdir_parts[1:]) if len(subdir_parts) > 1 else Path('.')
+                
+                # Create the subdirectory in static folder
+                if str(doc_subdir) != '.':
+                    image_subdir = self.static_dir / doc_subdir
+                else:
+                    image_subdir = self.static_dir
+            else:
+                image_subdir = self.static_dir
+            
             # Check if we've already processed this hash
             if file_hash in self.hash_to_path:
                 # Duplicate found, map to existing file
@@ -101,8 +134,11 @@ class ImageManager:
                 original_name = normalize_path(full_path.name)
                 new_filename = str(original_name)
                 
+                # Ensure the subdirectory exists
+                ensure_directory_exists(image_subdir)
+                
                 # Check if a file with this name already exists (different content)
-                new_path = self.static_dir / new_filename
+                new_path = image_subdir / new_filename
                 if new_path.exists():
                     # Calculate hash of existing file
                     existing_hash = self.calculate_hash(new_path)
@@ -115,7 +151,7 @@ class ImageManager:
                             counter = 1
                             while True:
                                 new_filename = f"{base_name}_{counter}.{extension}"
-                                new_path = self.static_dir / new_filename
+                                new_path = image_subdir / new_filename
                                 if not new_path.exists():
                                     break
                                 counter += 1
@@ -123,24 +159,26 @@ class ImageManager:
                             counter = 1
                             while True:
                                 new_filename = f"{original_name}_{counter}"
-                                new_path = self.static_dir / new_filename
+                                new_path = image_subdir / new_filename
                                 if not new_path.exists():
                                     break
                                 counter += 1
                         print(f"Warning: Filename conflict for {original_name}, using {new_filename}")
                     else:
                         # Same content, just use existing file
+                        relative_path = new_path.relative_to(self.static_dir)
                         self.moved_images.add(str(new_path))
-                        self.hash_to_path[file_hash] = new_filename
-                        self.image_map[original_path] = (file_hash, new_filename)
+                        self.hash_to_path[file_hash] = str(relative_path)
+                        self.image_map[original_path] = (file_hash, str(relative_path))
                         continue
                 
                 # Copy the image
                 try:
                     shutil.copy2(full_path, new_path)
+                    relative_path = new_path.relative_to(self.static_dir)
                     self.moved_images.add(str(new_path))
-                    self.hash_to_path[file_hash] = new_filename
-                    self.image_map[original_path] = (file_hash, new_filename)
+                    self.hash_to_path[file_hash] = str(relative_path)
+                    self.image_map[original_path] = (file_hash, str(relative_path))
                     print(f"Copied image: {full_path} -> {new_path}")
                 except (IOError, OSError) as e:
                     print(f"Error copying image {full_path}: {e}")
@@ -148,8 +186,8 @@ class ImageManager:
     def get_new_image_path(self, original_path):
         """Get the new path for an image after deduplication."""
         if original_path in self.image_map:
-            _, new_filename = self.image_map[original_path]
-            return f"/static/img/{self.project_name}/{new_filename}"
+            _, new_relative_path = self.image_map[original_path]
+            return f"/static/img/{self.project_name}/{new_relative_path}"
         return original_path
     
     def get_new_image_path_by_filename(self, filename):
@@ -158,18 +196,18 @@ class ImageManager:
         normalized_filename = normalize_path(filename).name
         
         # Look through all processed images to find a match
-        for original_path, (file_hash, new_filename) in self.image_map.items():
+        for original_path, (file_hash, new_relative_path) in self.image_map.items():
             # Check if the normalized filename matches
             original_normalized = normalize_path(Path(original_path).name)
             if str(original_normalized) == str(normalized_filename):
-                return f"/static/img/{self.project_name}/{new_filename}"
+                return f"/static/img/{self.project_name}/{new_relative_path}"
         
-        # If not found in the map, check if the file exists in static dir
+        # If not found in the map, search recursively in static dir
         if self.static_dir.exists():
-            # First try exact match
-            exact_path = self.static_dir / normalized_filename
-            if exact_path.exists():
-                return f"/static/img/{self.project_name}/{normalized_filename}"
+            # Search recursively for the file
+            for img_file in self.static_dir.rglob(str(normalized_filename)):
+                relative_path = img_file.relative_to(self.static_dir)
+                return f"/static/img/{self.project_name}/{relative_path}"
             
             # Then try with number suffix (for conflicts)
             if isinstance(normalized_filename, Path):
@@ -177,8 +215,9 @@ class ImageManager:
             else:
                 pattern = f"{Path(normalized_filename).stem}_*{Path(normalized_filename).suffix}"
             
-            for img_file in self.static_dir.glob(pattern):
-                return f"/static/img/{self.project_name}/{img_file.name}"
+            for img_file in self.static_dir.rglob(pattern):
+                relative_path = img_file.relative_to(self.static_dir)
+                return f"/static/img/{self.project_name}/{relative_path}"
         
         return None
     
@@ -187,9 +226,9 @@ class ImageManager:
         if not self.static_dir.exists():
             return
         
-        # Get all images in static directory
+        # Get all images in static directory (recursively)
         all_images = set()
-        for img_file in self.static_dir.glob('*'):
+        for img_file in self.static_dir.rglob('*'):
             if img_file.is_file():
                 all_images.add(str(img_file))
         
