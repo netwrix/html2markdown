@@ -117,6 +117,9 @@ class HtmlToMarkdownConverter:
     
     def _clean_markdown(self, content):
         """Clean up the markdown content."""
+        # Fix code blocks that appear within lists
+        content = self._fix_list_code_blocks(content)
+        
         # Remove excessive blank lines
         while '\n\n\n' in content:
             content = content.replace('\n\n\n', '\n\n')
@@ -125,6 +128,94 @@ class HtmlToMarkdownConverter:
         content = content.strip() + '\n'
         
         return content
+    
+    def _fix_list_code_blocks(self, content):
+        """Fix code blocks within lists to have proper indentation and spacing."""
+        lines = content.split('\n')
+        fixed_lines = []
+        i = 0
+        in_list = False
+        
+        while i < len(lines):
+            line = lines[i]
+            
+            # Check if this is an ordered list item
+            list_match = re.match(r'^(\d+)\.\s+(.+)', line)
+            
+            if list_match:
+                in_list = True
+                # This is a list item
+                list_number = list_match.group(1)
+                list_content = list_match.group(2)
+                
+                # Check if the content ends with a code block
+                if '```' in list_content and list_content.strip().endswith('```'):
+                    # Find where the code block starts in this line
+                    code_start = list_content.find('```')
+                    if code_start > 0:
+                        # Split the line into text before code and the code block
+                        text_before = list_content[:code_start].rstrip()
+                        code_block = list_content[code_start:]
+                        
+                        # Add the list item with text
+                        fixed_lines.append(f"{list_number}. {text_before}")
+                        fixed_lines.append("")  # Empty line before code block
+                        fixed_lines.append(f"    {code_block}")  # Indented code block
+                        fixed_lines.append("")  # Empty line after code block
+                    else:
+                        fixed_lines.append(line)
+                else:
+                    fixed_lines.append(line)
+            elif in_list and line.strip() == '':
+                # Empty line in list context
+                fixed_lines.append(line)
+            elif in_list and line.strip().startswith('```'):
+                # Code block following a list item
+                # Check if previous non-empty line was a list item
+                j = len(fixed_lines) - 1
+                while j >= 0 and fixed_lines[j].strip() == '':
+                    j -= 1
+                
+                if j >= 0 and re.match(r'^\d+\.\s+', fixed_lines[j]):
+                    # This code block belongs to the list
+                    # Ensure there's exactly one empty line before
+                    while fixed_lines and fixed_lines[-1].strip() == '':
+                        fixed_lines.pop()
+                    fixed_lines.append("")
+                    
+                    # Add the indented code block
+                    code_line = line.strip()
+                    fixed_lines.append(f"    {code_line}")
+                    
+                    # If it's a multi-line code block, indent all lines until closing ```
+                    if not code_line.endswith('```') or code_line.count('```') == 1:
+                        i += 1
+                        while i < len(lines):
+                            if lines[i].strip().endswith('```') and '```' in lines[i]:
+                                fixed_lines.append(f"    {lines[i].strip()}")
+                                break
+                            else:
+                                fixed_lines.append(f"    {lines[i]}")
+                            i += 1
+                    
+                    # Add empty line after code block
+                    fixed_lines.append("")
+                else:
+                    # Not part of a list
+                    fixed_lines.append(line)
+                    in_list = False
+            elif not line.strip().startswith(('```', '-', '*', '+')) and not re.match(r'^\d+\.\s+', line) and line.strip():
+                # Regular content that's not a list item or code block
+                if in_list and not re.match(r'^\s{2,}', line):
+                    # This breaks the list context if it's not indented
+                    in_list = False
+                fixed_lines.append(line)
+            else:
+                fixed_lines.append(line)
+            
+            i += 1
+        
+        return '\n'.join(fixed_lines)
     
     def validate(self):
         """Validate the conversion output."""
