@@ -129,6 +129,7 @@ class HtmlToMarkdownConverter:
         
         return content
     
+    
     def _fix_list_code_blocks(self, content):
         """Fix code blocks within lists to have proper indentation and spacing."""
         lines = content.split('\n')

@@ -99,90 +99,65 @@ class CustomMarkdownConverter(BaseConverter):
     
     def convert_table(self, el, text, parent_tags):
         """Convert table elements with proper formatting."""
-        # Count columns from the first row
-        first_row = el.find('tr')
-        if not first_row:
-            return text
-        
-        cols = len(first_row.find_all(['td', 'th']))
-        if cols == 0:
-            return text
-        
-        # Create header separator
-        header_separator = '|' + '|'.join(['---'] * cols) + '|'
-        
-        # Process the table content
+        # Split the text into lines
         lines = text.strip().split('\n')
-        if len(lines) > 0:
-            # Insert header separator after first row
-            lines.insert(1, header_separator)
+        if not lines:
+            return text
         
-        return '\n' + '\n'.join(lines) + '\n'
-    
-    def convert_li(self, el, text, parent_tags):
-        """Convert list item elements with proper indentation for nested lists."""
-        # Calculate nesting level by counting parent list elements
-        nesting_level = 0
-        parent_el = el.parent
-        while parent_el:
-            if parent_el.name in ['ul', 'ol']:
-                nesting_level += 1
-            parent_el = parent_el.parent
+        # First, determine the expected number of columns from the header row
+        header_cells = lines[0].count('|')
+        expected_cols = header_cells - 1 if header_cells > 0 else 0
         
-        # Calculate indentation (4 spaces per level, but first level has no indent)
-        indent = '    ' * max(0, nesting_level - 1)
-        
-        # Get immediate parent to determine list type
-        parent = el.parent
-        if parent and parent.name == 'ol':
-            # Ordered list - find the item number
-            index = 1
-            # Only count direct children li elements
-            for i, sibling in enumerate(parent.find_all('li', recursive=False)):
-                if sibling == el:
-                    index = i + 1
-                    break
+        # Process each line to ensure proper column count
+        fixed_lines = []
+        for i, line in enumerate(lines):
+            if line.strip() == '':
+                continue
+                
+            # Count cells in this line
+            cells = line.split('|')
+            # Remove empty cells at start and end (markdown table format)
+            if cells and cells[0].strip() == '':
+                cells = cells[1:]
+            if cells and cells[-1].strip() == '':
+                cells = cells[:-1]
             
-            # Check if we need to use the value attribute
-            if el.get('value'):
-                index = el.get('value')
+            current_cols = len(cells)
             
-            return f"{indent}{index}. {text.strip()}\n"
-        else:
-            # Unordered list
-            return f"{indent}- {text.strip()}\n"
-    
-    def convert_ul(self, el, text, parent_tags):
-        """Convert unordered list elements."""
-        # Check if this is a nested list
-        parent_li = None
-        for parent in parent_tags:
-            if parent == 'li':
-                parent_li = True
-                break
+            # Check if this is a separator line
+            is_separator = all(cell.strip() == '---' or cell.strip() == '' for cell in cells)
+            
+            if is_separator:
+                # Ensure separator has correct number of columns
+                if current_cols != expected_cols:
+                    separator = '|' + '|'.join(['---'] * expected_cols) + '|'
+                    fixed_lines.append(separator)
+                else:
+                    fixed_lines.append(line)
+            else:
+                # Regular row - ensure it has the correct number of columns
+                if current_cols < expected_cols:
+                    # Pad with empty cells
+                    cells.extend([''] * (expected_cols - current_cols))
+                
+                # Reconstruct the line
+                fixed_line = '|' + '|'.join(f' {cell.strip()} ' for cell in cells) + '|'
+                fixed_lines.append(fixed_line)
         
-        if parent_li:
-            # This is a nested list, ensure proper spacing
-            return f"\n{text}"
-        else:
-            # Top-level list
-            return f"\n{text}\n"
-    
-    def convert_ol(self, el, text, parent_tags):
-        """Convert ordered list elements."""
-        # Check if this is a nested list
-        parent_li = None
-        for parent in parent_tags:
-            if parent == 'li':
-                parent_li = True
-                break
+        # Ensure there's a separator after the header
+        if len(fixed_lines) > 1:
+            # Check if second line is a separator
+            second_line = fixed_lines[1] if len(fixed_lines) > 1 else ''
+            cells = second_line.split('|')[1:-1] if '|' in second_line else []
+            is_separator = all(cell.strip() == '---' for cell in cells)
+            
+            if not is_separator:
+                # Insert separator after header
+                separator = '|' + '|'.join(['---'] * expected_cols) + '|'
+                fixed_lines.insert(1, separator)
         
-        if parent_li:
-            # This is a nested list, ensure proper spacing
-            return f"\n{text}"
-        else:
-            # Top-level list
-            return f"\n{text}\n"
+        return '\n' + '\n'.join(fixed_lines) + '\n'
+    
     
     def convert_br(self, el, text, parent_tags):
         """Convert br elements."""
